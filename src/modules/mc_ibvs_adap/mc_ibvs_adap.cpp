@@ -102,13 +102,13 @@ public:
     /**
      * Desctructor, also kills task
      */
-     ~MulticopterOPFIBVS();
+    ~MulticopterOPFIBVS();
     /**
      * Start task.
      * @return      OK on success
      */
     int start();
-	void status();
+    void status();
 private:
     bool	_task_should_exit;		/**< if true, task should exit */
     int		_ibvs_task;             /**< task handle for task */
@@ -116,13 +116,13 @@ private:
     /* Various subscription topic file descriptor */
     int             _img_feature_sub_fd;
     int             _parameter_update_sub_fd;
-//    int             _att_sub_fd;
+    //    int             _att_sub_fd;
     int             _vehicle_status_sub_fd;
     int             _ctrl_state_sub_fd;
 
     /* Various topics subscription variables definition */
     struct image_features_s             _img_feature;
-//    struct vehicle_attitude_s           _att;
+    //    struct vehicle_attitude_s           _att;
     struct vehicle_status_s             _vehicle_status;
     struct control_state_s              _ctrl_state;
 
@@ -132,7 +132,7 @@ private:
     void		poll_subscriptions();
 
     struct{
-//        Height Gains
+        //        Height Gains
         param_t k1_h;
         param_t d1_h;
         param_t k2_h;
@@ -141,8 +141,9 @@ private:
         param_t gamma2_h;
         param_t l1_h;
         param_t l2_h;
+        param_t SENSI;                                              //sensitivity
 
-//        Roll Gains
+        //        Roll Gains
         param_t k1_r;
         param_t d1_r;
         param_t k2_r;
@@ -152,7 +153,7 @@ private:
         param_t l1_r;
         param_t l2_r;
 
-//        Pitch Gains
+        //        Pitch Gains
         param_t k1_p;
         param_t d1_p;
         param_t k2_p;
@@ -176,6 +177,7 @@ private:
         float gamma2_h;
         float l1_h;
         float l2_h;
+        float SENSI;                     // sensitivity
 
         float k1_r;
         float d1_r;
@@ -230,7 +232,7 @@ private:
     math::Vector<2> vartheta_h1;
     math::Vector<2> vartheta_h2;
 
-    // state for lateral subsystem
+    // state for lateral subsystem                         state for lateral subsystem
     math::Vector<2> e_sl;
     math::Vector<4> xi_ly;
     math::Vector<4> xi_lu;
@@ -262,12 +264,12 @@ MulticopterOPFIBVS::MulticopterOPFIBVS():
     /* subscriptions file descriptor */
     _img_feature_sub_fd(-1),
     _parameter_update_sub_fd(-1),
-//    _att_sub_fd(-1),
+    //    _att_sub_fd(-1),
     _vehicle_status_sub_fd(-1),
     _ctrl_state_sub_fd{-1},
     /* subscribed structures */
     _img_feature{},
-//    _att{},
+    //    _att{},
     _vehicle_status{},
     _ctrl_state{},
     // publication
@@ -282,7 +284,7 @@ MulticopterOPFIBVS::MulticopterOPFIBVS():
     // Make the quaternion valid for control state
     _ctrl_state.q[0] = 1.0f;
 
-    xi_hy.zero();
+    xi_hy.zero();                                     // initialization state for lateral subsystem
     xi_hu.zero();
     xi_hd.zero();
     vartheta_h1.zero();
@@ -300,13 +302,13 @@ MulticopterOPFIBVS::MulticopterOPFIBVS():
 
     euler_angles.zero();
     _R.identity();
-//    t_prev = 0;
+    //    t_prev = 0;
 
-//    /* fetch initial parameter values */
-//    parameters_update(true);
-////    _loop_perf = perf_alloc(PC_INTERVAL, "mc_ibvs_saturation");
-////    _timeout_count = perf_alloc(PC_COUNT, "mc_ibvs_saturation timeout");
-//	t=hrt_absolute_time();
+    //    /* fetch initial parameter values */
+    //    parameters_update(true);
+    ////    _loop_perf = perf_alloc(PC_INTERVAL, "mc_ibvs_saturation");
+    ////    _timeout_count = perf_alloc(PC_COUNT, "mc_ibvs_saturation timeout");
+    //	t=hrt_absolute_time();
 
     _params_handles.k1_h        = param_find("IBVS_K1_H");
     _params_handles.d1_h        = param_find("IBVS_D1_H");
@@ -316,6 +318,7 @@ MulticopterOPFIBVS::MulticopterOPFIBVS():
     _params_handles.gamma2_h    = param_find("IBVS_GAMMA2_H");
     _params_handles.l1_h        = param_find("IBVS_L1_H");
     _params_handles.l2_h         = param_find("IBVS_L2_H");
+    _params_handles.SENSI         = param_find("IBVS_SENSI");        //sensitivity
 
     _params_handles.k1_r        = param_find("IBVS_K1_R");
     _params_handles.d1_r        = param_find("IBVS_D1_R");
@@ -337,7 +340,7 @@ MulticopterOPFIBVS::MulticopterOPFIBVS():
 
     _params_handles.k_psi       = param_find("IBVS_K_PSI1");
     _params_handles.thr_hover   = param_find("VCN_THR_HOVER");
-//    _params.thr_hover
+    //    _params.thr_hover
 
     /* fetch initial parameter values */
     parameters_update(true);
@@ -381,6 +384,7 @@ MulticopterOPFIBVS::parameters_update(bool force)
         param_get(_params_handles.gamma2_h,&(_params.gamma2_h));
         param_get(_params_handles.l1_h,&(_params.l1_h));
         param_get(_params_handles.l2_h,&(_params.l2_h));
+        param_get(_params_handles.SENSI,&(_params.SENSI));     //sensitivity
 
         param_get(_params_handles.k1_r, &(_params.k1_r));
         param_get(_params_handles.d1_r, &(_params.d1_r));
@@ -415,11 +419,11 @@ MulticopterOPFIBVS::start()
     //TODO check the priority
     /* start the task */
     _ibvs_task = px4_task_spawn_cmd("mc_ibvs_adap",
-                       SCHED_DEFAULT,
-                       SCHED_PRIORITY_POSITION_CONTROL,
-                       2048,
-                       (main_t)&MulticopterOPFIBVS::task_main_trampoline,
-                       nullptr);
+                                    SCHED_DEFAULT,
+                                    SCHED_PRIORITY_POSITION_CONTROL,
+                                    2048,
+                                    (main_t)&MulticopterOPFIBVS::task_main_trampoline,
+                                    nullptr);
 
     if (_ibvs_task < 0) {
         warn("task start failed");
@@ -439,32 +443,32 @@ void
 MulticopterOPFIBVS::poll_subscriptions()
 {
     bool updated;
-//  update the attitude
-//    orb_check(_att_sub_fd, &updated);
-//    if (updated){
-//        orb_copy(ORB_ID(vehicle_attitude), _att_sub_fd, &_att);
-//    }
-//    update the image feature
+    //  update the attitude
+    //    orb_check(_att_sub_fd, &updated);
+    //    if (updated){
+    //        orb_copy(ORB_ID(vehicle_attitude), _att_sub_fd, &_att);
+    //    }
+    //    update the image feature
     orb_check(_img_feature_sub_fd, &updated);
     if (updated)
     {
         orb_copy(ORB_ID(image_features), _img_feature_sub_fd, &_img_feature);
     }
-//    update vehicle's status
+    //    update vehicle's status
     orb_check(_vehicle_status_sub_fd, &updated);
     if(updated){
         orb_copy(ORB_ID(vehicle_status),_vehicle_status_sub_fd,&_vehicle_status);
     }
 
-//    update vehicle control state
+    //    update vehicle control state
     orb_check(_ctrl_state_sub_fd,&updated);
     if(updated){
         orb_copy(ORB_ID(control_state),_ctrl_state_sub_fd,&_ctrl_state);
         math::Quaternion q_att(_ctrl_state.q[0], _ctrl_state.q[1], _ctrl_state.q[2], _ctrl_state.q[3]);
-//        _R = q_att.to_dcm();
+        //        _R = q_att.to_dcm();
         euler_angles = q_att.to_euler();
         psidot = _ctrl_state.yaw_rate;
-//        warnx("R P Y: %.4f, %.4f, %.4f", (double)euler_angles(0),(double)euler_angles(1),(double)euler_angles(2));
+        //        warnx("R P Y: %.4f, %.4f, %.4f", (double)euler_angles(0),(double)euler_angles(1),(double)euler_angles(2));
     }
 }
 
@@ -487,7 +491,7 @@ MulticopterOPFIBVS::task_main()
     fds[0].events = POLLIN;
 
     hrt_abstime t_prev = hrt_absolute_time();
-//    hrt_abstime t_print = 0;
+    //    hrt_abstime t_print = 0;
 
     // Control parameters for lateral subsystem
     math::Matrix<4,4> A_L;
@@ -524,19 +528,19 @@ MulticopterOPFIBVS::task_main()
 
 
     // Control parameters for height subsystem
-    math::Matrix<2,2> Ao;
-    math::Vector<2> Lh;
+    math::Matrix<2,2> Ao; Ao.zero(); Ao(0,1) = -1.0f;
+    math::Vector<2> Lh;     Lh.zero();
     math::Vector<2> Bo(0.0f,1.0f);
-    Ao.zero();
-    Ao(0,1) = -1.0f;
-    Lh.zero();
+    math::Matrix<1,2> Co;  Co(0,0) = 1.0f; Co(0,1) = 0.0f;
+    math::Vector<2> Cop(1.0f,0.0f);
+    math::Matrix<2,2>A_CH; A_CH.zero();
 
     bool ibvs_on_prev = false;
     bool ibvs_int_reset_thrust = true;
     bool ibvs_int_reset_lateral = true;
 
-//    uint8_t prev_nav_state = vehicle_status_s::NAVIGATION_STATE_MANUAL;
-//    uint8_t counter = 0;
+    //    uint8_t prev_nav_state = vehicle_status_s::NAVIGATION_STATE_MANUAL;
+    //    uint8_t counter = 0;
 
     while(!_task_should_exit){
         int poll_ret = poll(fds,(sizeof(fds) / sizeof(fds[0])),500);
@@ -647,11 +651,13 @@ MulticopterOPFIBVS::task_main()
             math::Vector<2> u_bar_l;
             u_bar_l = -delta_l2*(k2_l + d2_l*(k1_l+d1_l)*(k1_l+d1_l)*vartheta_l1(0)*vartheta_l1(0))
                     - varpi_l2_1*vartheta_l2(0) - varpi_l2_2*vartheta_l2(1) - varpi_l2_3*vartheta_l2(2);
+
             float u_hd;
             if(u_h<_params.thr_hover)
                 u_hd = _params.thr_hover;
             else
                 u_hd = u_h;
+            u_hd = 0.5f;
 
             math::Vector<2> uhSeta_m1;
             uhSeta_m1 = u_bar_l - xi_lu1*l2_l + ell_l_1*vartheta_l1(0) + ell_l_2*vartheta_l1(1) + ell_l_3*vartheta_l1(2)
@@ -692,16 +698,16 @@ MulticopterOPFIBVS::task_main()
                 vartheta_l1_update(2) = gamma1_l*(delta_l1*varpi_l1_3);
 
                 //TODO change the bound if necessary
-//                projector<math::Vector<3>,3>(vartheta_l1_update,vartheta_l1,0.1f);
-                projector<3>(vartheta_l1_update,vartheta_l1,0.1f);
+                //                projector<math::Vector<3>,3>(vartheta_l1_update,vartheta_l1,0.1f);
+                projector<3>(vartheta_l1_update,vartheta_l1,0.05f);
 
                 vartheta_l2_update(0) = gamma2_l*(delta_l2*varpi_l2_1);
                 vartheta_l2_update(1) = gamma2_l*(delta_l2*varpi_l2_2);
                 vartheta_l2_update(2) = gamma2_l*(delta_l2*varpi_l2_3);
 
                 //TODO change the bound if necessary
-//                projector<math::Vector<3>,3>(vartheta_l2_update,vartheta_l2,40.0f);
-                 projector<3>(vartheta_l2_update,vartheta_l2,40.0f);
+                //                projector<math::Vector<3>,3>(vartheta_l2_update,vartheta_l2,40.0f);
+                projector<3>(vartheta_l2_update,vartheta_l2,0.01f);
 
                 vartheta_l1 += vartheta_l1_update*dt;
                 vartheta_l2 += vartheta_l2_update*dt;
@@ -726,33 +732,86 @@ MulticopterOPFIBVS::task_main()
             _att_sp_ibvs.pitch_body = 0.0f;
         }
 
-
+ // for Height subsystem //////////////////////////////////////////////////////////////////////
         if(isValid(&_img_feature,2))
         {
             // update the value of observer gains;
-            Lh(0) = _params.l1_h;
-            Lh(1) = -_params.l2_h;
-            e_sh = _img_feature.s[2] - 1.0f;
 
-            float tilde_xi_hy1 = xi_hy(0) - e_sh;
-            math::Vector<2> varpi_h1((_params.k1_h+_params.d1_h)*e_sh -xi_hy(1),
-                                     xi_hd(1));
-            math::Vector<2> varpi_h2(vartheta_h1(0)*(_params.k1_h+_params.d1_h)*xi_hu(1)-e_sh,
-                                     -vartheta_h1(0)*(_params.k1_h+_params.d1_h)*xi_hd(1));
+            float k1_h = _params.k1_h;
+            float d1_h = _params.d1_h;
+            float k2_h = _params.k2_h;
+            float d2_h = _params.d2_h;
+            float l1_h = _params.l1_h;
+            float l2_h = _params.l2_h;
+            float gamma1_h = _params.gamma1_h;
+            float gamma2_h = _params.gamma2_h;
 
-            float delta_h2 = xi_hu(1) - vartheta_h1*varpi_h1;
-            math::Vector<2> ell_h(-(_params.k1_h+_params.d1_h)*xi_hy(1)- _params.l2_h*tilde_xi_hy1,
-                                  _params.l2_h*xi_hd(1)+1.0f);
 
-            _att_sp_ibvs.thrust = -_params.l2_h*xi_hu(0) - _params.gamma1_h*e_sh*(varpi_h1*varpi_h1) + vartheta_h1*ell_h
-                    -(_params.k2_h+_params.d2_h*(_params.k1_h+_params.d1_h)*(_params.k1_h+_params.d1_h)*vartheta_h1(0)*vartheta_h1(0))*delta_h2
-                    -vartheta_h2*varpi_h2;
+            float SENSI = _params.SENSI;
+            float X = e_sl(0)*SENSI;
+            float Y = e_sl(1)*SENSI;
+            float K = k1_h+d1_h*(X*X+Y*Y);
+            float M1 = -SENSI;
+            float M2 = -SENSI;
+            float N = 0.0f;
+
+            Lh(0) = l1_h;
+            Lh(1) = -l2_h;
+            A_CH(0,0)=-l1_h; A_CH(0,1)=-1.0f;  A_CH(1,0)=l1_h;  A_CH(1,1)=0.0f;
+
+            float G=2.0f*(e_sl(0)*e_sl(0)+e_sl(1)*e_sl(1));        // lateral error estimation function
+            float s3star;
+            if (G<0.01f)                                                                  //ALERT is here, decision value
+            {
+                s3star = 1.0f;
+            }
+            else
+            {
+                s3star = SENSI*(G-0.01f)+1.0f;                            //ALERT is here
+                if (s3star>1.5f)
+                {
+                    s3star=1.5f;
+                }
+            }
+
+            e_sh = _img_feature.s[2] - s3star;
+
+            /// float tilde_xi_hy1 = xi_hy(0) - e_sh;
+            ///math::Vector<2> varpi_h1((_params.k1_h+_params.d1_h)*e_sh -xi_hy(1),xi_hd(1));
+            math::Vector<2> varpi_h1(xi_hy(1)-K*e_sh, -l1_h/l2_h);
+
+            ///math::Vector<2> varpi_h2(vartheta_h1(0)*(_params.k1_h+_params.d1_h)*xi_hu(1)-e_sh, -vartheta_h1(0)*(_params.k1_h+_params.d1_h)*xi_hd(1));
+            math::Vector<2> varpi_h2 (K*vartheta_h1(0)*xi_hu(1)-e_sh,  -K*vartheta_h1(0)*l1_h/l2_h);
+
+            /// float delta_h2 = xi_hu(1) - vartheta_h1*varpi_h1;
+            float delta_h2 = xi_hu(1) + vartheta_h1*varpi_h1;
+
+            ///math::Vector<2> ell_h(-(_params.k1_h+_params.d1_h)*xi_hy(1)- _params.l2_h*tilde_xi_hy1,
+            ///  _params.l2_h*xi_hd(1)+1.0f);
+            math::Vector<2> ell_h(l2_h*(xi_hy(1)-s3star)-l2_h*e_sh-X*_params.l2_p*(-e_sl(0))-Y*_params.l2_r*(-e_sl(1))+K*xi_hy(1), 0);
+
+
+            math::Vector<2> alpha (-2*d1_h*e_sh*X*M1-2*d1_h*e_sh*N*Y-K*X, 0);
+            math::Vector<2> beta   (-2*d1_h*e_sh*Y*M2-2*d1_h*e_sh*N*X-K*Y, 0);
+
+            float JJ   = vartheta_h1*alpha;
+            float PP = vartheta_h1*beta;
+
+
+            ///_att_sp_ibvs.thrust = -_params.l2_h*xi_hu(0) - _params.gamma1_h*e_sh*(varpi_h1*varpi_h1) + vartheta_h1*ell_h
+            ///-(_params.k2_h+_params.d2_h*(_params.k1_h+_params.d1_h)*(_params.k1_h+_params.d1_h)*vartheta_h1(0)*vartheta_h1(0))*delta_h2
+            ///-vartheta_h2*varpi_h2;
+            _att_sp_ibvs.thrust = -l2_h*xi_hu(0)- gamma1_h*e_sh*(varpi_h1*varpi_h1)-vartheta_h1*ell_h
+                    -vartheta_h2*varpi_h2
+                    -(k2_h+d2_h*JJ*JJ+d2_h*PP*PP+d2_h*vartheta_h1(0)*vartheta_h1(0)*K*K)* delta_h2;    //note the sign of b
 
             // Observer Part
             float u_h = _att_sp_ibvs.thrust;
-            xi_hy += (Ao*xi_hy - Lh*tilde_xi_hy1)*dt;
-            xi_hu += (Ao*xi_hu - Lh*xi_hu(0)+Bo*u_h)*dt;
-            xi_hd += (Ao*xi_hd - Lh*xi_hd(0)+Bo)*dt;
+            ///xi_hy += (Ao*xi_hy - Lh*tilde_xi_hy1)*dt;
+            ///xi_hu += (Ao*xi_hu - Lh*xi_hu(0)+Bo*u_h)*dt;
+            ///xi_hd += (Ao*xi_hd - Lh*xi_hd(0)+Bo)*dt;
+            xi_hy += (A_CH*(xi_hy-Cop*s3star)+Lh*e_sh)*dt;
+            xi_hu += (A_CH*xi_hu + Bo*u_h)*dt;
 
             // Adaptive Law
             if(ibvs_int_reset_thrust)
@@ -764,11 +823,15 @@ MulticopterOPFIBVS::task_main()
             else
             {
                 //TODO check the bound
-                math::Vector<2> vartheta_h1_update(varpi_h1*(-_params.gamma1_h*e_sh));
-//                projector<math::Vector<2>,2>(vartheta_h1_update,vartheta_h1,0.6f);
+                //math::Vector<2> vartheta_h1_update(varpi_h1*(-_params.gamma1_h*e_sh));
+                math::Vector<2> vartheta_h1_update(varpi_h1*(gamma1_h*e_sh));
+                //                projector<math::Vector<2>,2>(vartheta_h1_update,vartheta_h1,0.6f);
                 projector<2>(vartheta_h1_update,vartheta_h1,0.6f);
-                math::Vector<2> vartheta_h2_update(varpi_h2*(_params.gamma2_h*delta_h2));
-//                projector<math::Vector<2>,2>(vartheta_h2_update,vartheta_h2,24.0f);
+
+
+                //math::Vector<2> vartheta_h2_update(varpi_h2*(_params.gamma2_h*delta_h2));
+                math::Vector<2> vartheta_h2_update(varpi_h2*(gamma2_h*delta_h2));
+                //                projector<math::Vector<2>,2>(vartheta_h2_update,vartheta_h2,24.0f);
                 projector<2>(vartheta_h2_update,vartheta_h2,24.0f);
 
                 vartheta_h1 += vartheta_h1_update*dt;
@@ -791,13 +854,13 @@ MulticopterOPFIBVS::task_main()
         // for yaw motion
         if(isValid(&_img_feature,3))
         {
-//            warnx("S4 is valid");
+            //            warnx("S4 is valid");
             float alpha = _img_feature.s[3];
             if (alpha>0.4f) alpha  = 0.4f;
             if (alpha<-0.4f) alpha = -0.4f;
             _att_sp_ibvs.yaw_body = euler_angles(2) + _params.k_psi*alpha;
             //TODO how to wrap up yaw motion?
-//            _att_sp_ibvs.yaw_body += _params.k_psi*0.2*alpha*dt;
+            //            _att_sp_ibvs.yaw_body += _params.k_psi*0.2*alpha*dt;
             _att_sp_ibvs.valid += ((uint8_t)8);
         }
         else
@@ -820,8 +883,8 @@ MulticopterOPFIBVS::task_main()
         else{
             orb_advertise(ORB_ID(ibvs_state),&_ibvs_state);
         }
-//        perf_count(_loop_perf);
-//        prev_nav_state = _vehicle_status.nav_state;
+        //        perf_count(_loop_perf);
+        //        prev_nav_state = _vehicle_status.nav_state;
     }
 
 
@@ -838,11 +901,11 @@ void MulticopterOPFIBVS::status()
             (double)_img_feature.s[2], (double)_img_feature.s[3], (double)_img_feature.s[4]);
     warnx("Reference roll pitch yaw thrust: %.4f %.4f %.4f %.4f",(double)_att_sp_ibvs.roll_body,
           (double)_att_sp_ibvs.pitch_body,(double)_att_sp_ibvs.yaw_body, (double)_att_sp_ibvs.thrust);
-//    warnx("xi_hy(0):%.3f, xi_hy(1):%.3f",(double)xi_hy(0),(double)xi_hy(1));
-//    warnx("xi_hu(0):%.3f, xi_hu(1):%.3f",(double)xi_hu(0),(double)xi_hu(1));
-//    warnx("xi_hd(0):%.3f, xi_hd(1):%.3f",(double)xi_hd(0),(double)xi_hd(1));
-//    warnx("vartheta_h1: %.3f, %.3f",(double)vartheta_h1(0),(double)vartheta_h1(1));
-//    warnx("vartheta_h2: %.3f, %.3f",(double)vartheta_h2(0),(double)vartheta_h2(1));
+    //    warnx("xi_hy(0):%.3f, xi_hy(1):%.3f",(double)xi_hy(0),(double)xi_hy(1));
+    //    warnx("xi_hu(0):%.3f, xi_hu(1):%.3f",(double)xi_hu(0),(double)xi_hu(1));
+    //    warnx("xi_hd(0):%.3f, xi_hd(1):%.3f",(double)xi_hd(0),(double)xi_hd(1));
+    //    warnx("vartheta_h1: %.3f, %.3f",(double)vartheta_h1(0),(double)vartheta_h1(1));
+    //    warnx("vartheta_h2: %.3f, %.3f",(double)vartheta_h2(0),(double)vartheta_h2(1));
     warnx("xi_ly: %3.4f, %3.4f, %3.4f, %3.4f",(double)xi_ly(0),(double)xi_ly(1),(double)xi_ly(2),(double)xi_ly(3));
     warnx("xi_lu: %3.4f, %3.4f, %3.4f, %3.4f",(double)xi_lu(0),(double)xi_lu(1),(double)xi_lu(2),(double)xi_lu(3));
     warnx("xi_lphi: %3.4f, %3.4f, %3.4f, %3.4f",(double)xi_lphi(0),(double)xi_lphi(1),(double)xi_lphi(2),(double)xi_lphi(3));
@@ -860,7 +923,7 @@ extern "C" __EXPORT int mc_ibvs_adap_main(int argc, char *argv[]);
 int mc_ibvs_adap_main(int argc, char *argv[])
 {
     if (argc < 2)
-            errx(1, "missing command usage: mc_ibvs {start|stop|status}");
+        errx(1, "missing command usage: mc_ibvs {start|stop|status}");
 
     if (!strcmp(argv[1], "start")){
 
@@ -873,10 +936,10 @@ int mc_ibvs_adap_main(int argc, char *argv[])
             errx(1, "alloc failed");
 
         if (OK != ibvs::g_control->start()) {
-                    delete ibvs::g_control;
-                    ibvs::g_control = nullptr;
-                    err(1, "start failed");
-                }
+            delete ibvs::g_control;
+            ibvs::g_control = nullptr;
+            err(1, "start failed");
+        }
         exit(0);
     }
 
@@ -892,12 +955,12 @@ int mc_ibvs_adap_main(int argc, char *argv[])
 
     if (!strcmp(argv[1], "status")) {
         if (ibvs::g_control) {
-		ibvs::g_control->status();
+            ibvs::g_control->status();
         }
         else{
             warnx("not running");
         }
-	exit(0);
+        exit(0);
     }
 
     warnx("unrecognized command");
